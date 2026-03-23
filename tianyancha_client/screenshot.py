@@ -8,6 +8,19 @@ class ScreenshotService:
     def __init__(self, page):
         self.page = page
 
+    def _get_section_bottom(self, selector):
+        return self.page.evaluate(
+            """
+            (targetSelector) => {
+                const el = document.querySelector(targetSelector);
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                return Math.ceil(rect.bottom + window.scrollY + 30);
+            }
+            """,
+            selector,
+        )
+
     def screenshot_page(self, url, name):
         page = self.page
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -41,27 +54,26 @@ class ScreenshotService:
             """
         )
 
-        target = page.locator('[data-dim="staff"]').first
-        if target.count() == 0:
+        staff_bottom = self._get_section_bottom('[data-dim="staff"]')
+        if staff_bottom is not None:
             page.evaluate(
                 """
                 () => {
-                document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
-                    (el.closest('.dim-section') || el).remove();
-                });
-            }
-            """
+                    document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
+                        (el.closest('.dim-section') || el).remove();
+                    });
+                }
+                """
             )
-            target = page.locator('[data-dim="baseInfo"]').first
-
-        crop_bottom = target.evaluate(
-            """
-            el => {
-                const rect = el.getBoundingClientRect();
-                return Math.ceil(rect.bottom + window.scrollY + 30);
-            }
-            """
-        )
+            crop_bottom = staff_bottom
+        else:
+            base_info_bottom = self._get_section_bottom('[data-dim="baseInfo"]')
+            if base_info_bottom is not None:
+                crop_bottom = base_info_bottom
+            else:
+                crop_bottom = page.evaluate(
+                    "() => Math.ceil(document.documentElement.scrollHeight)"
+                )
 
         page.screenshot(path=full_path, full_page=True, animations="disabled")
 
