@@ -8,6 +8,19 @@ class ScreenshotService:
     def __init__(self, page):
         self.page = page
 
+    def _get_section_bottom(self, selector):
+        return self.page.evaluate(
+            """
+            (targetSelector) => {
+                const el = document.querySelector(targetSelector);
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                return Math.ceil(rect.bottom + window.scrollY + 30);
+            }
+            """,
+            selector,
+        )
+
     def screenshot_page(self, url, name):
         page = self.page
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -41,33 +54,26 @@ class ScreenshotService:
             """
         )
 
-        crop_bottom = page.evaluate(
-            """
-            () => {
-                const getBottom = (selector) => {
-                    const el = document.querySelector(selector);
-                    if (!el) return null;
-                    const rect = el.getBoundingClientRect();
-                    return Math.ceil(rect.bottom + window.scrollY + 30);
-                };
-
-                const staffBottom = getBottom('[data-dim="staff"]');
-                if (staffBottom !== null) {
+        staff_bottom = self._get_section_bottom('[data-dim="staff"]')
+        if staff_bottom is not None:
+            page.evaluate(
+                """
+                () => {
                     document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
                         (el.closest('.dim-section') || el).remove();
                     });
-                    return staffBottom;
                 }
-
-                const baseInfoBottom = getBottom('[data-dim="baseInfo"]');
-                if (baseInfoBottom !== null) {
-                    return baseInfoBottom;
-                }
-
-                return Math.ceil(document.documentElement.scrollHeight);
-            }
-            """
-        )
+                """
+            )
+            crop_bottom = staff_bottom
+        else:
+            base_info_bottom = self._get_section_bottom('[data-dim="baseInfo"]')
+            if base_info_bottom is not None:
+                crop_bottom = base_info_bottom
+            else:
+                crop_bottom = page.evaluate(
+                    "() => Math.ceil(document.documentElement.scrollHeight)"
+                )
 
         page.screenshot(path=full_path, full_page=True, animations="disabled")
 
