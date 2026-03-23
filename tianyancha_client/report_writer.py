@@ -8,11 +8,42 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
 
+CHINESE_DIGITS = "零一二三四五六七八九"
+CHINESE_UNITS = ["", "十", "百", "千"]
+
+
 def _set_fangsong(run, size_pt: int, bold: bool):
     run.bold = bold
     run.font.name = "仿宋"
     run._element.rPr.rFonts.set(qn("w:eastAsia"), "仿宋")
     run.font.size = Pt(size_pt)
+
+
+def _int_to_chinese(num: int) -> str:
+    if num == 0:
+        return CHINESE_DIGITS[0]
+
+    parts = []
+    unit_pos = 0
+    need_zero = False
+
+    while num > 0:
+        digit = num % 10
+        if digit == 0:
+            if parts and not need_zero:
+                need_zero = True
+        else:
+            if need_zero:
+                parts.append(CHINESE_DIGITS[0])
+                need_zero = False
+            parts.append(CHINESE_UNITS[unit_pos])
+            parts.append(CHINESE_DIGITS[digit])
+        unit_pos += 1
+        num //= 10
+
+    result = "".join(reversed(parts))
+    result = result.replace("一十", "十", 1)
+    return result
 
 
 class WordReportService:
@@ -49,6 +80,13 @@ class WordReportService:
                 _set_fangsong(missing_run, size_pt=14, bold=False)
 
             document.add_paragraph("")
+
+        supplier_count_cn = _int_to_chinese(len(supplier_names))
+        conclusion_para = document.add_paragraph()
+        conclusion_run = conclusion_para.add_run(
+            f"结论：经核查，以上{supplier_count_cn}家单位无关联性。"
+        )
+        _set_fangsong(conclusion_run, size_pt=16, bold=True)
 
         report_path = self.output_dir / f"{project_name}关联性报告.docx"
         document.save(str(report_path))
