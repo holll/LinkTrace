@@ -31,10 +31,6 @@ class ScreenshotService:
                 document.querySelectorAll('[class*="scroll-wrap"]').forEach(el => el.remove());
                 document.querySelectorAll('[class*="bottom-bar-wrap"]').forEach(el => el.remove());
 
-                document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
-                    (el.closest('.dim-section') || el).remove();
-                });
-
                 document.querySelectorAll('[data-dim="mapInfo"]').forEach(el => {
                     (el.closest('.dim-section') || el).remove();
                 });
@@ -47,7 +43,16 @@ class ScreenshotService:
 
         target = page.locator('[data-dim="staff"]').first
         if target.count() == 0:
-            raise RuntimeError('没找到 data-dim="staff" 的主要人员区块')
+            page.evaluate(
+                """
+                () => {
+                document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
+                    (el.closest('.dim-section') || el).remove();
+                });
+            }
+            """
+            )
+            target = page.locator('[data-dim="baseInfo"]').first
 
         crop_bottom = target.evaluate(
             """

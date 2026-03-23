@@ -61,7 +61,7 @@ class WordReportService:
 
         title = document.add_paragraph()
         title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        title_run = title.add_run(f"<{project_name}>关联性报告")
+        title_run = title.add_run(f"{project_name}关联性报告")
         _set_fangsong(title_run, size_pt=22, bold=True)
 
         document.add_paragraph("")
