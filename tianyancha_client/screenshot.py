@@ -41,24 +41,30 @@ class ScreenshotService:
             """
         )
 
-        target = page.locator('[data-dim="staff"]').first
-        if target.count() == 0:
-            page.evaluate(
-                """
-                () => {
-                document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
-                    (el.closest('.dim-section') || el).remove();
-                });
-            }
+        crop_bottom = page.evaluate(
             """
-            )
-            target = page.locator('[data-dim="baseInfo"]').first
+            () => {
+                const getBottom = (selector) => {
+                    const el = document.querySelector(selector);
+                    if (!el) return null;
+                    const rect = el.getBoundingClientRect();
+                    return Math.ceil(rect.bottom + window.scrollY + 30);
+                };
 
-        crop_bottom = target.evaluate(
-            """
-            el => {
-                const rect = el.getBoundingClientRect();
-                return Math.ceil(rect.bottom + window.scrollY + 30);
+                const staffBottom = getBottom('[data-dim="staff"]');
+                if (staffBottom !== null) {
+                    document.querySelectorAll('[data-dim="baseInfo"]').forEach(el => {
+                        (el.closest('.dim-section') || el).remove();
+                    });
+                    return staffBottom;
+                }
+
+                const baseInfoBottom = getBottom('[data-dim="baseInfo"]');
+                if (baseInfoBottom !== null) {
+                    return baseInfoBottom;
+                }
+
+                return Math.ceil(document.documentElement.scrollHeight);
             }
             """
         )
