@@ -54,54 +54,142 @@ class RelationResult:
         return "；".join(parts) if parts else "无"
 
 
-_EXTRACT_PAGE_SCRIPT = """
-() => {
-    const out = { legal: '', shareholders: [], staff: [] };
-
-    // 法定代表人：工商信息区块的法定代表人单元格
-    const legalTd = document.querySelector('td[class*="legal-name-box"]');
-    if (legalTd) {
-        const a = legalTd.querySelector('a[href*="/human/"]');
-        if (a) out.legal = a.innerText.trim();
+_FIND_SECTION_JS = """
+(titles) => {
+    for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
+        if (titles.includes(h.innerText.trim())) return h.closest('.dim-section');
     }
+    return null;
+}
+"""
 
+_LEGAL_REP_JS = """
+() => {
+    const td = document.querySelector('td[class*="legal-name-box"]');
+    if (!td) return '';
+    const a = td.querySelector('a[href*="/human/"]');
+    return a ? a.innerText.trim() : '';
+}
+"""
+
+_SCROLL_TO_SECTION_JS = """
+(titles) => {
+    for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
+        if (titles.includes(h.innerText.trim())) {
+            h.closest('.dim-section').scrollIntoView({block: 'center'});
+            return true;
+        }
+    }
+    return false;
+}
+"""
+
+_COLLECT_ROWS_JS = """
+({titles, selector}) => {
     const findSection = (titles) => {
         for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
             if (titles.includes(h.innerText.trim())) return h.closest('.dim-section');
         }
         return null;
     };
+    const sec = findSection(titles);
+    if (!sec) return [];
+    const names = [];
+    sec.querySelectorAll('table tbody tr').forEach(tr => {
+        const a = tr.querySelector(selector);
+        if (a && !names.includes(a.innerText.trim())) {
+            names.push(a.innerText.trim());
+        }
+    });
+    return names;
+}
+"""
 
-    // 股东：股东信息/主要股东区块表格的股东名称列
-    const shareholderSec = findSection(['股东信息', '主要股东']);
-    if (shareholderSec) {
-        shareholderSec.querySelectorAll('table tbody tr').forEach(tr => {
-            const a = tr.querySelector('td.left-col a');
-            if (a) out.shareholders.push(a.innerText.trim());
-        });
+_NEXT_PAGE_JS = """
+(titles) => {
+    const findSection = (titles) => {
+        for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
+            if (titles.includes(h.innerText.trim())) return h.closest('.dim-section');
+        }
+        return null;
+    };
+    const sec = findSection(titles);
+    if (!sec) return false;
+    const wrap = sec.querySelector('.pagination-wrap');
+    if (!wrap) return false;
+    const next = wrap.querySelector('.tic-laydate-next-m, [class*="next"]');
+    const nums = [...wrap.querySelectorAll('.num')];
+    const active = wrap.querySelector('.num.active');
+    if (next && active && nums[nums.indexOf(active) + 1]) {
+        next.click();
+        return true;
     }
+    return false;
+}
+"""
 
-    // 主要人员：主要人员区块表格的姓名列
-    const staffSec = findSection(['主要人员']);
-    if (staffSec) {
-        staffSec.querySelectorAll('table tbody tr').forEach(tr => {
-            const a = tr.querySelector('td a');
-            if (a) out.staff.push(a.innerText.trim());
-        });
-    }
-    return out;
+_WAIT_ROWS_JS = """
+({titles, selector}) => {
+    const findSection = (titles) => {
+        for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
+            if (titles.includes(h.innerText.trim())) return h.closest('.dim-section');
+        }
+        return null;
+    };
+    const sec = findSection(titles);
+    if (!sec) return false;
+    // 懒加载会先插入占位行，等待真正的数据行（目标选择器命中）出现
+    return sec.querySelector(selector) !== null;
 }
 """
 
 
+def _collect_section_names(page, titles, name_selector, timeout_ms=8000):
+    """滚动到区块触发懒加载，翻页收集全部名称（去重）。大公司表格分页时逐页提取。"""
+    page.evaluate(_SCROLL_TO_SECTION_JS, titles)
+    try:
+        page.wait_for_function(
+            _WAIT_ROWS_JS,
+            arg={"titles": titles, "selector": name_selector},
+            timeout=timeout_ms,
+        )
+    except Exception:
+        pass
+
+    names = []
+    prev_first = None
+    for _ in range(20):  # 最多翻 20 页
+        rows = page.evaluate(_COLLECT_ROWS_JS, {"titles": titles, "selector": name_selector})
+        if not rows:
+            break
+        if rows[0] == prev_first:  # 翻页后内容未变化，说明已到最后一页
+            break
+        names.extend(rows)
+        prev_first = rows[0]
+        if not page.evaluate(_NEXT_PAGE_JS, titles):
+            break
+        page.wait_for_timeout(1200)
+
+    # 去重保序
+    seen = set()
+    return [n for n in names if not (n in seen or seen.add(n))]
+
+
 def extract_persons_from_page(page) -> CompanyPersons:
-    """直接从已加载的页面提取法定代表人/股东/主要人员（不依赖 HTML 文件）。"""
-    data = page.evaluate(_EXTRACT_PAGE_SCRIPT)
+    """直接从已加载的页面提取法定代表人/股东/主要人员（不依赖 HTML 文件）。
+
+    表格数据为滚动懒加载且大公司分页展示，因此先滚动到区块触发加载，
+    再逐页翻页收集全部行。
+    """
+    legal = page.evaluate(_LEGAL_REP_JS)
+    shareholders = _collect_section_names(page, ["股东信息", "主要股东"], "td.left-col a")
+    staff = _collect_section_names(page, ["主要人员"], 'td a[href*="/human/"]')
+
     return CompanyPersons(
         company_name="",
-        legal_representative=data.get("legal", ""),
-        shareholders=data.get("shareholders", []),
-        staff=data.get("staff", []),
+        legal_representative=legal,
+        shareholders=shareholders,
+        staff=staff,
     )
 
 
