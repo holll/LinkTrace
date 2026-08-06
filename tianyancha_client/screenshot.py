@@ -1,5 +1,6 @@
 import os
 import uuid
+from pathlib import Path
 
 from PIL import Image
 
@@ -80,7 +81,7 @@ class ScreenshotService:
             except Exception:
                 pass
 
-    def screenshot_page(self, url, name):
+    def screenshot_page(self, url, name, html_save_path=None):
         SCREENSHOT_DIR.mkdir(exist_ok=True)
         full_path = str(SCREENSHOT_DIR / f"{name}_{uuid.uuid4().hex}_full.png")
         output_path = str(SCREENSHOT_DIR / f"{name}.png")
@@ -94,6 +95,10 @@ class ScreenshotService:
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         wait_manual_verify(page)
         self._wait_for_page_ready()
+
+        # 在隐藏干扰元素前保存原始 DOM，供人员关联性检查使用
+        if html_save_path:
+            Path(html_save_path).write_text(page.content(), encoding="utf-8")
 
         # 移除干扰元素：先隐藏，等待渲染帧完成后再截图，避免空白闪烁
         page.evaluate(

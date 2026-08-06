@@ -87,6 +87,7 @@ def main():
 
         search_service = TianyanchaSearchService(page, browser)
         screenshot_service = ScreenshotService(page)
+        HTML_DIR.mkdir(exist_ok=True)
 
         for company_name in company_names:
             try:
@@ -94,7 +95,11 @@ def main():
                 print("公司名:", result.company_name)
                 print("链接:", result.company_url)
 
-                output = screenshot_service.screenshot_page(result.company_url, result.company_name)
+                output = screenshot_service.screenshot_page(
+                    result.company_url,
+                    result.company_name,
+                    html_save_path=str(HTML_DIR / f"{company_name}.html"),
+                )
                 supplier_screenshot_map[company_name] = output
                 print("截图:", output)
             except Exception as e:
