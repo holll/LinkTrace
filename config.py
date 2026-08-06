@@ -30,6 +30,8 @@ STATE_FILE = AUTH_DIR / "tianyancha_state.json"
 SCREENSHOT_DIR = PROJECT_ROOT / "screenshots"
 SCREENSHOT_DIR.mkdir(exist_ok=True)
 
+HTML_DIR = PROJECT_ROOT / "html_pages"
+
 HEADLESS = False
 VIEWPORT = {"width": 1440, "height": 900}
 

@@ -1,6 +1,12 @@
 import argparse
+from pathlib import Path
 
+from config import HTML_DIR
 from tianyancha_client import BrowserManager, TianyanchaSearchService, ScreenshotService
+from tianyancha_client.relation_checker import (
+    find_relations_in_project,
+    load_persons_from_dir,
+)
 from tianyancha_client.report_writer import WordReportService
 from tianyancha_client.template_loader import (
     group_suppliers_by_project,
@@ -36,6 +42,35 @@ def load_company_names(template_path: str | None):
     return company_names, project_map
 
 
+def check_person_relations(project_map, company_names):
+    """基于已保存的详情页 HTML，检查同一项目内公司间的人员关联（法定代表人/股东/主要人员）。"""
+    html_dir = Path(HTML_DIR)
+    if not html_dir.is_dir():
+        print("\n[关联检查] 未找到 html_pages/ 目录，跳过人员关联性检查")
+        return
+
+    persons_map = load_persons_from_dir(html_dir, company_names)
+    print(f"\n[关联检查] 已提取 {len(persons_map)}/{len(company_names)} 家公司的法定代表人/股东/主要人员")
+
+    missing = [n for n in company_names if n not in persons_map]
+    if missing:
+        print(f"[关联检查] 以下公司无详情页数据，未参与检查: {', '.join(missing)}")
+
+    any_relation = False
+    for project, suppliers in project_map.items():
+        relations = find_relations_in_project(project, suppliers, persons_map)
+        if not relations:
+            continue
+        any_relation = True
+        print(f"\n[关联检查] 项目「{project}」检测到 {len(relations)} 组关联:")
+        for r in relations:
+            print(f"  - {r.company_a} <-> {r.company_b}")
+            print(f"    判定依据: {r.summary()}")
+
+    if not any_relation:
+        print("[关联检查] 未检测到人员关联")
+
+
 def main():
     args = parse_args()
     company_names, project_map = load_company_names(args.template)
@@ -68,6 +103,8 @@ def main():
 
     if failed_companies:
         print(f"\n以下 {len(failed_companies)} 家供应商处理失败: {', '.join(failed_companies)}")
+
+    check_person_relations(project_map, company_names)
 
     report_service = WordReportService()
     for project, suppliers in project_map.items():
