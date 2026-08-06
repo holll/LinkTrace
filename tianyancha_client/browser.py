@@ -9,26 +9,20 @@ class BrowserManager:
 
     def __enter__(self):
         self.p = sync_playwright().start()
+        launch_kwargs = {"headless": HEADLESS, "args": BROWSER_ARGS}
         if BROWSER_PATH is not None:
-            self.browser = self.p.chromium.launch(
-                executable_path=BROWSER_PATH,
-                headless=HEADLESS,
-                args=BROWSER_ARGS,
-            )
-        else:
-            self.browser = self.p.chromium.launch(
-                headless=HEADLESS,
-                args=BROWSER_ARGS,
-            )
-        kwargs = {
+            launch_kwargs["executable_path"] = BROWSER_PATH
+
+        self.browser = self.p.chromium.launch(**launch_kwargs)
+
+        context_kwargs = {
             "viewport": VIEWPORT,
             "user_agent": USER_AGENT,
         }
-
         if self.use_saved_state and STATE_FILE.exists():
-            kwargs["storage_state"] = str(STATE_FILE)
+            context_kwargs["storage_state"] = str(STATE_FILE)
 
-        self.context = self.browser.new_context(**kwargs)
+        self.context = self.browser.new_context(**context_kwargs)
         return self
 
     def new_page(self):
@@ -38,6 +32,13 @@ class BrowserManager:
         self.context.storage_state(path=str(STATE_FILE))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.context.close()
-        self.browser.close()
-        self.p.stop()
+        for attr in ("context", "browser", "p"):
+            obj = getattr(self, attr, None)
+            if obj is not None:
+                try:
+                    if attr == "p":
+                        obj.stop()
+                    else:
+                        obj.close()
+                except Exception:
+                    pass

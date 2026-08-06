@@ -45,6 +45,7 @@ def main():
         print(f"- {project}: {', '.join(suppliers)}")
 
     supplier_screenshot_map = {}
+    failed_companies = []
 
     with BrowserManager(use_saved_state=True) as browser:
         page = browser.new_page()
@@ -53,13 +54,20 @@ def main():
         screenshot_service = ScreenshotService(page)
 
         for company_name in company_names:
-            result = search_service.search_company_first(company_name)
-            print("公司名:", result.company_name)
-            print("链接:", result.company_url)
+            try:
+                result = search_service.search_company_first(company_name)
+                print("公司名:", result.company_name)
+                print("链接:", result.company_url)
 
-            output = screenshot_service.screenshot_page(result.company_url, result.company_name)
-            supplier_screenshot_map[company_name] = output
-            print("截图:", output)
+                output = screenshot_service.screenshot_page(result.company_url, result.company_name)
+                supplier_screenshot_map[company_name] = output
+                print("截图:", output)
+            except Exception as e:
+                print(f"[失败] {company_name}: {e}")
+                failed_companies.append(company_name)
+
+    if failed_companies:
+        print(f"\n以下 {len(failed_companies)} 家供应商处理失败: {', '.join(failed_companies)}")
 
     report_service = WordReportService()
     for project, suppliers in project_map.items():
