@@ -56,6 +56,7 @@ class WordReportService:
         project_name: str,
         supplier_names: List[str],
         supplier_screenshot_map: Dict[str, str],
+        relations: List = None,
     ) -> str:
         document = Document()
 
@@ -83,10 +84,24 @@ class WordReportService:
 
         supplier_count_cn = _int_to_chinese(len(supplier_names))
         conclusion_para = document.add_paragraph()
-        conclusion_run = conclusion_para.add_run(
-            f"结论：经核查，以上{supplier_count_cn}家单位无关联性。"
-        )
-        _set_fangsong(conclusion_run, size_pt=16, bold=True)
+        related = [r for r in (relations or []) if r.is_related]
+        if related:
+            conclusion_run = conclusion_para.add_run(
+                f"结论：经核查，以上{supplier_count_cn}家单位中存在 {len(related)} 组关联："
+            )
+            _set_fangsong(conclusion_run, size_pt=16, bold=True)
+            for r in related:
+                detail_para = document.add_paragraph()
+                detail_run = detail_para.add_run(
+                    f"　　{r.company_a} 与 {r.company_b} 存在关联，"
+                    f"判定依据：{r.summary()}。"
+                )
+                _set_fangsong(detail_run, size_pt=14, bold=False)
+        else:
+            conclusion_run = conclusion_para.add_run(
+                f"结论：经核查，以上{supplier_count_cn}家单位无关联性。"
+            )
+            _set_fangsong(conclusion_run, size_pt=16, bold=True)
 
         report_path = self.output_dir / f"{project_name}关联性报告.docx"
         document.save(str(report_path))

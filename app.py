@@ -4,9 +4,10 @@ from pathlib import Path
 from config import HTML_DIR
 from tianyancha_client import BrowserManager, TianyanchaSearchService, ScreenshotService
 from tianyancha_client.relation_checker import (
+    extract_persons_from_page,
     find_relations_in_project,
-    load_persons_from_dir,
 )
+from tianyancha_client.utils import wait_manual_verify
 from tianyancha_client.report_writer import WordReportService
 from tianyancha_client.template_loader import (
     group_suppliers_by_project,
@@ -42,23 +43,20 @@ def load_company_names(template_path: str | None):
     return company_names, project_map
 
 
-def check_person_relations(project_map, company_names):
-    """基于已保存的详情页 HTML，检查同一项目内公司间的人员关联（法定代表人/股东/主要人员）。"""
-    html_dir = Path(HTML_DIR)
-    if not html_dir.is_dir():
-        print("\n[关联检查] 未找到 html_pages/ 目录，跳过人员关联性检查")
-        return
+def check_person_relations(project_map, persons_map):
+    """检查同一项目内公司间的人员关联（法定代表人/股东/主要人员）。"""
+    print(f"\n[关联检查] 已提取 {len(persons_map)} 家公司的法定代表人/股东/主要人员")
 
-    persons_map = load_persons_from_dir(html_dir, company_names)
-    print(f"\n[关联检查] 已提取 {len(persons_map)}/{len(company_names)} 家公司的法定代表人/股东/主要人员")
-
-    missing = [n for n in company_names if n not in persons_map]
+    missing = [n for n in set(n for suppliers in project_map.values() for n in suppliers)
+               if n not in persons_map]
     if missing:
-        print(f"[关联检查] 以下公司无详情页数据，未参与检查: {', '.join(missing)}")
+        print(f"[关联检查] 以下公司无数据，未参与检查: {', '.join(missing)}")
 
+    project_relations = {}
     any_relation = False
     for project, suppliers in project_map.items():
         relations = find_relations_in_project(project, suppliers, persons_map)
+        project_relations[project] = relations
         if not relations:
             continue
         any_relation = True
@@ -69,6 +67,7 @@ def check_person_relations(project_map, company_names):
 
     if not any_relation:
         print("[关联检查] 未检测到人员关联")
+    return project_relations
 
 
 def main():
@@ -81,6 +80,7 @@ def main():
 
     supplier_screenshot_map = {}
     failed_companies = []
+    persons_map = {}
 
     with BrowserManager(use_saved_state=True) as browser:
         page = browser.new_page()
@@ -102,6 +102,21 @@ def main():
                 )
                 supplier_screenshot_map[company_name] = output
                 print("截图:", output)
+
+                # 直接从页面提取人员信息存入内存（不依赖 HTML 文件）。
+                # 截图缓存命中时页面可能不在目标详情页，需先导航过去。
+                if not page.url.startswith(result.company_url):
+                    page.goto(result.company_url, wait_until="domcontentloaded", timeout=60000)
+                    wait_manual_verify(page)
+                    for sel in ('[data-dim="staff"]', '[data-dim="baseInfo"]'):
+                        try:
+                            page.wait_for_selector(sel, timeout=5000)
+                            break
+                        except Exception:
+                            continue
+                persons = extract_persons_from_page(page)
+                persons.company_name = company_name
+                persons_map[company_name] = persons
             except Exception as e:
                 print(f"[失败] {company_name}: {e}")
                 failed_companies.append(company_name)
@@ -109,11 +124,16 @@ def main():
     if failed_companies:
         print(f"\n以下 {len(failed_companies)} 家供应商处理失败: {', '.join(failed_companies)}")
 
-    check_person_relations(project_map, company_names)
+    project_relations = check_person_relations(project_map, persons_map)
 
     report_service = WordReportService()
     for project, suppliers in project_map.items():
-        report_path = report_service.build_project_report(project, suppliers, supplier_screenshot_map)
+        report_path = report_service.build_project_report(
+            project,
+            suppliers,
+            supplier_screenshot_map,
+            relations=project_relations.get(project),
+        )
         print("Word报告:", report_path)
 
 

@@ -54,6 +54,57 @@ class RelationResult:
         return "；".join(parts) if parts else "无"
 
 
+_EXTRACT_PAGE_SCRIPT = """
+() => {
+    const out = { legal: '', shareholders: [], staff: [] };
+
+    // 法定代表人：工商信息区块的法定代表人单元格
+    const legalTd = document.querySelector('td[class*="legal-name-box"]');
+    if (legalTd) {
+        const a = legalTd.querySelector('a[href*="/human/"]');
+        if (a) out.legal = a.innerText.trim();
+    }
+
+    const findSection = (titles) => {
+        for (const h of document.querySelectorAll('.dimHeader_main-title-txt__GPoaZ')) {
+            if (titles.includes(h.innerText.trim())) return h.closest('.dim-section');
+        }
+        return null;
+    };
+
+    // 股东：股东信息/主要股东区块表格的股东名称列
+    const shareholderSec = findSection(['股东信息', '主要股东']);
+    if (shareholderSec) {
+        shareholderSec.querySelectorAll('table tbody tr').forEach(tr => {
+            const a = tr.querySelector('td.left-col a');
+            if (a) out.shareholders.push(a.innerText.trim());
+        });
+    }
+
+    // 主要人员：主要人员区块表格的姓名列
+    const staffSec = findSection(['主要人员']);
+    if (staffSec) {
+        staffSec.querySelectorAll('table tbody tr').forEach(tr => {
+            const a = tr.querySelector('td a');
+            if (a) out.staff.push(a.innerText.trim());
+        });
+    }
+    return out;
+}
+"""
+
+
+def extract_persons_from_page(page) -> CompanyPersons:
+    """直接从已加载的页面提取法定代表人/股东/主要人员（不依赖 HTML 文件）。"""
+    data = page.evaluate(_EXTRACT_PAGE_SCRIPT)
+    return CompanyPersons(
+        company_name="",
+        legal_representative=data.get("legal", ""),
+        shareholders=data.get("shareholders", []),
+        staff=data.get("staff", []),
+    )
+
+
 def _first_text(segment: str, exclude: str = "") -> str:
     for text in _RE_HTML_TEXT.findall(segment):
         text = text.strip()
